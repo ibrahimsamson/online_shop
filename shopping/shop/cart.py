@@ -60,7 +60,7 @@ class Cart(object):
 
     def __len__(self):
         """count items"""
-        return sum(item['quantity'] for item in sel .cart.values())
+        return sum(item['quantity'] for item in self.cart.values())
 
     def get_total_price(self):
         return sum(
