@@ -1,9 +1,10 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 
 from shopping.shop.models import Category, Product, OrderItem
 from shopping.shop.cart import Cart
 from shopping.shop.forms import CartAddProductForm, OrderCreateForm
+from shopping.shop.tasks import order_created
 
 
 def product_list(request, category_slug=None):
@@ -16,7 +17,7 @@ def product_list(request, category_slug=None):
         return render(request,
                        'shop/list.html',
                        {'category':category,
-                        'categories':Categories,
+                        'categories':categories,
                         'products': products})
     else:
         return render(request, 'shop/list.html',
@@ -45,7 +46,7 @@ def cart_add(request, product_id):
         cd = form.cleaned_data
         cart.add(product=product,
                  quantity=cd['quantity'],
-                 update_quantity=cd['update'])
+                 updated_quantity=cd['update'])
         return redirect('shop:cart_detail')
     else :
         return form
@@ -69,28 +70,31 @@ def cart_detail(request):
     return render(request, 'cart/detail.html', {'cart': cart})
 
 
+@require_POST
 def order_create(request):
     cart = Cart(request)
 
-    if request.method is 'POST':
-        form = OrderCreateForm(request.POST)
-        if form.is_valid():
-            order = form.save()
-            for item in cart:
-                OrderItem.objects.create(order=order,
-                                         product=item['product'],
-                                         price=item['price'],
-                                         quantity=item['quantity'])
-            cart.clear()
+    form = OrderCreateForm(request.POST)
+    if form.is_valid():
+        order = form.save()
+        for item in cart:
+            OrderItem.objects.create(order=order,
+                                        product=item['product'],
+                                        price=item['price'],
+                                        quantity=item['quantity'])
+        cart.clear()
 
-            return render(request,
-                          'order/created.html',
-                          {'order': order})
-        else:
-            form = OrderCreateForm()
-            return render(request,
-                          'order/create.html',
-                          {'cart':cart, 'form':form})
+        # async task
+        order_created.delay(order.id)
+
+        return render(request,
+                        'order/created.html',
+                        {'order': order})
+    else:
+        form = OrderCreateForm()
+        return render(request,
+                        'order/create.html',
+                        {'cart':cart, 'form':form})
 
 
 
